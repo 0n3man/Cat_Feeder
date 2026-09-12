@@ -1,0 +1,12 @@
+#User buttons definitions
+#maximum of six buttons
+#button name,macro,button styles,other attributes
+#Up,up.sh,btn btn-success btn-sm,style="width:15%" autofocus
+#Down,down.sh,btn btn-success btn-sm,style="width:15%" autofocus
+#Left,left.sh,btn btn-success btn-sm,style="width:15%" autofocus
+#Right,right.sh,btn btn-success btn-sm,style="width:15%" autofocus
+#Play,play.sh,btn btn-success btn-sm,style="width:15%" play
+Feed-1,feed1.sh,btn btn-warning btn-sm,style="width:15%" autofocus
+Feed-2,feed2.sh,btn btn-danger btn-sm,style="width:15%" autofocus
+#Warning Button,button2.sh,btn btn-warning btn-lg,style="width:50%"
+#Success Button,button3.sh,btn btn-success btn-lg,style="width:50%"

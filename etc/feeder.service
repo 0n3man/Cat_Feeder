@@ -1,0 +1,14 @@
+[Unit]
+Description=feeder network control process
+
+[Service]
+User=brian
+WorkingDirectory=/home/brian
+ExecStartPre=/bin/sleep 3
+ExecStart=/home/brian/feeder_stuff/networkControl.py
+Restart=always
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target
+
