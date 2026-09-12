@@ -79,6 +79,117 @@ they modify rc.local and contain older PHP assumptions. Your RasPyCam installer
 should still be updated to use your web fork for standalone installations, but
 that edit does not have to be pushed before using this combined installer.
 
+## Starting, stopping, and restarting services
+
+There is **no single service that starts the entire feeder**. The installer
+independently enables three application services and a watchdog timer at boot.
+`cat-feeder.service` runs only the motor/network controller. The watchdog checks
+only the camera; it does not start the controller or PHP scheduler.
+
+| Systemd unit | Program / purpose | Effect of stopping it |
+| --- | --- | --- |
+| `cat-feeder-camera.service` | Runs `/opt/vc/bin/raspycam/main.py --config /etc/raspimjpeg` directly; replaces the legacy raspimjpeg camera process | Preview and recording stop |
+| `cat-feeder.service` | Runs `/opt/cat-feeder/networkControl.py`, listening on port 33333 | Feeding requests cannot be handled; the stop hook turns GPIO 17 off |
+| `cat-feeder-scheduler.service` | Runs `/var/www/html/schedule.php`; translates FIFO1 recording requests into camera commands and manages retention/settings | Feed-triggered recording and scheduled web housekeeping stop; the motor controller can still dispense food |
+| `cat-feeder-watchdog.timer` | Invokes `cat-feeder-watchdog.service` approximately every two minutes | Camera health checks stop |
+| `apache2.service` | Serves the browser interface | Web access stops; the other services and scheduled feeding can continue |
+
+Systemd starts the applications at boot. Startup ordering is configured, but
+starting or restarting one application does **not** automatically start or
+restart the other two. The camera uses `Restart=always` to recover even after
+an unexpected clean exit; the controller and scheduler use `Restart=on-failure`.
+
+Perform routine maintenance when no feeding or recording is in progress.
+Restarting the motor controller resets `rec_len` to its default of 300 seconds.
+
+### Restart one component
+
+```bash
+sudo systemctl restart cat-feeder-camera.service
+sudo systemctl restart cat-feeder-scheduler.service
+sudo systemctl restart cat-feeder.service
+```
+
+Run only the command for the component you need. Restart Apache separately if
+its configuration changes:
+
+```bash
+sudo systemctl restart apache2.service
+```
+
+### Stop the whole feeder for maintenance
+
+Stop the watchdog first so it cannot bring the camera back. Stop the controller
+before the scheduler and camera:
+
+```bash
+sudo systemctl stop cat-feeder-watchdog.timer
+sudo systemctl stop cat-feeder-watchdog.service
+sudo systemctl stop cat-feeder.service
+sudo systemctl stop cat-feeder-scheduler.service
+sudo systemctl stop cat-feeder-camera.service
+```
+
+Apache remains available, but camera/feeding controls will not work. You may
+also stop `apache2.service` if you want the web page offline.
+
+**Stopping the camera alone is not a lasting stop while the watchdog is on:**
+although `systemctl stop` suppresses systemd's own automatic restart, the
+watchdog will recover an enabled camera service that is no longer running.
+A live camera paused through the GUI is respected by the watchdog.
+
+### Start the whole feeder again
+
+```bash
+sudo systemctl start cat-feeder-camera.service
+sudo systemctl start cat-feeder-scheduler.service
+sudo systemctl start cat-feeder.service
+sudo systemctl start cat-feeder-watchdog.timer
+```
+
+Also start `apache2.service` if you stopped it. Allow time for camera
+initialization; `systemctl start` returning does not mean the preview is ready.
+To restart the whole feeder, use the stop sequence followed by the start
+sequence above. The watchdog gets invoked by its timer; do not enable the
+one-shot `cat-feeder-watchdog.service` as a separate boot service.
+
+### Keep the feeder stopped across reboots
+
+After the maintenance stop sequence, disable automatic startup:
+
+```bash
+sudo systemctl disable cat-feeder-camera.service cat-feeder-scheduler.service cat-feeder.service cat-feeder-watchdog.timer
+```
+
+To restore automatic startup, enable them and then use the start sequence:
+
+```bash
+sudo systemctl enable cat-feeder-camera.service cat-feeder-scheduler.service cat-feeder.service cat-feeder-watchdog.timer
+```
+
+Feeding times, if enabled during installation, live separately in
+`/etc/cron.d/cat-feeder`. Stopping services does not remove those entries. Comment
+out the feeding line there to disable scheduled feeding while retaining manual
+feeding. Do not stop the system-wide cron service just to disable cat feeds.
+
+### Check status and logs
+
+```bash
+systemctl status cat-feeder-camera cat-feeder-scheduler cat-feeder cat-feeder-watchdog.timer
+sudo journalctl -u cat-feeder-camera -u cat-feeder-scheduler -u cat-feeder --since "10 minutes ago" --no-pager
+sudo journalctl -u cat-feeder-watchdog --since "10 minutes ago" --no-pager
+```
+
+To test automatic camera recovery while idle, signal the camera process without
+explicitly stopping its service:
+
+```bash
+sudo systemctl kill --kill-whom=main --signal=SIGTERM cat-feeder-camera.service
+```
+
+Check for a new PID and a fresh preview after shutdown, the five-second restart
+delay, and initialization. `SIGKILL` can be used instead to test an abrupt crash.
+
 ## Uninstall and repeat
 
 ```bash
