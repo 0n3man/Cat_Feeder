@@ -88,7 +88,7 @@ def checkout(url, path, ref, user):
                capture_output=True, text=True).stdout.strip()
 
 
-def service(description, command, user='www-data', extra='', after=''):
+def service(description, command, user='www-data', extra='', after='', restart='on-failure'):
     return f'''[Unit]
 Description={description}
 After=network.target {after}
@@ -97,7 +97,7 @@ Type=simple
 User={user}
 {extra}
 ExecStart={command}
-Restart=on-failure
+Restart={restart}
 RestartSec=5
 TimeoutStopSec=35
 [Install]
@@ -173,6 +173,7 @@ def install(args):
         put(state, '/opt/cat-feeder/networkControl.py', (ROOT / 'networkControl.py').read_text(), 0o755)
         put(state, '/etc/systemd/system/cat-feeder-camera.service', service(
             'Cat feeder camera', '/usr/bin/python3 -u /opt/vc/bin/raspycam/main.py --config /etc/raspimjpeg',
+            restart='always',
             extra='SupplementaryGroups=video\nExecStartPre=+/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/cat-feeder.conf'))
         put(state, '/etc/systemd/system/cat-feeder-scheduler.service', service(
             'Cat feeder web scheduler', '/usr/bin/php /var/www/html/schedule.php',
@@ -184,27 +185,8 @@ def install(args):
             user='root', extra='ExecStopPost=/usr/bin/python3 /opt/cat-feeder/motor_off.py',
             after='cat-feeder-camera.service cat-feeder-scheduler.service'))
         # Use systemd as sole camera owner; no legacy launcher/cron restart.
-        put(state, '/usr/local/sbin/cat-feeder-watchdog', '''#!/usr/bin/python3
-from pathlib import Path
-import subprocess
-import time
-preview = Path('/dev/shm/mjpeg/cam.jpg')
-status = Path('/dev/shm/mjpeg/status_mjpeg.txt')
-if status.exists() and status.read_text().strip() == 'halted':
-    raise SystemExit(0)
-show_preview = True
-for filename in ('/etc/raspimjpeg', '/var/www/html/uconfig'):
-    path = Path(filename)
-    if path.exists():
-        for line in path.read_text().splitlines():
-            parts = line.split()
-            if len(parts) == 2 and parts[0] == 'show_preview':
-                show_preview = parts[1] != 'false'
-if not show_preview:
-    raise SystemExit(0)
-if not preview.exists() or time.time() - preview.stat().st_mtime > 90:
-    subprocess.run(['systemctl', 'restart', 'cat-feeder-camera.service'], check=True)
-''', 0o755)
+        put(state, '/usr/local/sbin/cat-feeder-watchdog',
+            (ROOT / 'scripts/camera_watchdog.py').read_text(), 0o755)
         put(state, '/etc/systemd/system/cat-feeder-watchdog.service',
             '[Unit]\nDescription=Check cat feeder preview\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/cat-feeder-watchdog\n')
         put(state, '/etc/systemd/system/cat-feeder-watchdog.timer',
